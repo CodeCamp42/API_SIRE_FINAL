@@ -37,7 +37,7 @@ export class SunatService {
     private readonly configService: ConfigService,
   ) {}
 
-  async obtenerReportesPorRango(
+  /*async obtenerReportesPorRango(
     periodoInicio: string,
     periodoFin: string,
   ): Promise<Array<{ periodo: string; contenido: string }>> {
@@ -57,7 +57,34 @@ export class SunatService {
     }
 
     return resultados;
+  }*/
+ async obtenerReportesPorRango(
+    periodoInicio: string,
+    periodoFin: string,
+  ): Promise<Array<{ periodo: string; contenido: any[] }>> {
+    const periodos = this.generarPeriodos(periodoInicio, periodoFin);
+    this.logger.log(`Obteniendo reportes para ${periodos.length} períodos: ${periodos.join(', ')}`);
+
+    const resultados: Array<{ periodo: string; contenido: any[] }> = [];
+
+    for (const periodo of periodos) {
+      try {
+        const contenidoTexto = await this.obtenerReporteFacturacion(periodo);
+        
+        // Transformamos el string con pipes "|" a un Array de Objetos JSON
+        const contenidoParseado = this.parsearContenidoSunat(contenidoTexto);
+        
+        resultados.push({ periodo, contenido: contenidoParseado });
+      } catch (error) {
+        this.logger.warn(`Error obteniendo reporte para periodo ${periodo}: ${error.message}`);
+        // Devolvemos un array vacío en contenido si hay error para no romper el Front
+        resultados.push({ periodo, contenido: [] });
+      }
+    }
+
+    return resultados;
   }
+
 
   private generarPeriodos(periodoInicio: string, periodoFin: string): string[] {
     const periodos: string[] = [];
@@ -334,5 +361,47 @@ export class SunatService {
 
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+
+  private parsearContenidoSunat(texto: string): any[] {
+    if (!texto) return [];
+
+    // 1. Separamos por líneas
+    const lineas = texto.split('\n');
+    
+    // 2. La primera línea son los encabezados, la saltamos
+    // La data real empieza en la línea índice 1
+    const registrosRaw = lineas.slice(1);
+    const resultados = [];
+
+    for (const linea of registrosRaw) {
+      if (!linea.trim() || linea.includes('RUC|Apellidos')) continue;
+
+      const c = linea.split('|');
+
+      // Mapeo basado en la estructura de SUNAT que enviaste
+      resultados.push({
+        rucEmisor: c[0],
+        razonSocialEmisor: c[1],
+        periodo: c[2],
+        carSunat: c[3],
+        fechaEmision: c[4],
+        tipoCP: c[6],
+        serie: c[7],
+        numero: c[9],
+        tipoDocReceptor: c[11],
+        nroDocReceptor: c[12],
+        nombreReceptor: c[13],
+        baseGravada: parseFloat(c[14]) || 0,
+        igv: parseFloat(c[15]) || 0,
+        montoNoGravado: parseFloat(c[20]) || 0,
+        total: parseFloat(c[24]) || 0,
+        moneda: c[25],
+        estado: c[39] // Est. Comp.
+      });
+    }
+
+    return resultados;
   }
 }
