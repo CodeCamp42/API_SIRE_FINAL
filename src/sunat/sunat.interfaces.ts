@@ -1,12 +1,3 @@
-/**
- * SUNAT API Response Interfaces
- * Tipado fuerte para todas las respuestas de las APIs de SUNAT
- */
-
-// ============================================
-// PASO 1: Autenticación OAuth2
-// ============================================
-
 export interface SunatAuthResponse {
   access_token: string;
   token_type: string;
@@ -14,25 +5,18 @@ export interface SunatAuthResponse {
   scope?: string;
 }
 
-// ============================================
-// PASO 2: Solicitar Exportación (Ticket)
-// ============================================
-
 export interface SunatTicketResponse {
   numTicket: string;
   codCar?: string;
   fecProceso?: string;
 }
 
-// ============================================
-// PASO 3: Consultar Estado del Ticket
-// ============================================
-
 export interface SunatStatusResponse {
-  perIni: string;
-  perFin: string;
-  numPagina: number;
-  numRegistro: number;
+  paginacion: {
+    page: number;
+    perPage: number;
+    totalRegistros: number;
+  };
   registros: SunatTicketRegistro[];
 }
 
@@ -41,22 +25,26 @@ export interface SunatTicketRegistro {
   perTributario: string;
   codProceso: string;
   desProceso?: string;
-  fecInicio?: string;
-  fecFin?: string;
+  codEstadoProceso: string;
+  desEstadoProceso?: string;
+  fecInicioProceso?: string;
+  showReporteDescarga?: string;
   archivoReporte: SunatArchivoReporte[];
+  subProcesos?: SunatSubProceso[];
+}
+
+export interface SunatSubProceso {
+  codTipoSubProceso: string;
+  desTipoSubProceso: string;
+  codEstado: string;
+  numIntentos: number;
 }
 
 export interface SunatArchivoReporte {
+  codTipoAchivoReporte: string;
   nomArchivoReporte: string;
   nomArchivoContenido: string;
-  codEstado: string; // "0" = procesando, "1" = terminado
-  desEstado?: string;
-  numRegistros?: number;
 }
-
-// ============================================
-// PASO 4: Parámetros de descarga
-// ============================================
 
 export interface DownloadParams {
   nomArchivoReporte: string;
@@ -66,18 +54,10 @@ export interface DownloadParams {
   numTicket: string;
 }
 
-// ============================================
-// Errores de SUNAT
-// ============================================
-
 export interface SunatErrorResponse {
   cod: string;
   msg: string;
 }
-
-// ============================================
-// Configuración del módulo
-// ============================================
 
 export interface SunatConfig {
   clientId: string;

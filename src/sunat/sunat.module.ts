@@ -7,7 +7,7 @@ import { SunatService } from './sunat.service';
 @Module({
   imports: [
     HttpModule.register({
-      timeout: 30000, // 30 segundos timeout para llamadas HTTP
+      timeout: 30000,
       maxRedirects: 5,
     }),
     ConfigModule,
