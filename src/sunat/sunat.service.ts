@@ -37,27 +37,7 @@ export class SunatService {
     private readonly configService: ConfigService,
   ) {}
 
-  /*async obtenerReportesPorRango(
-    periodoInicio: string,
-    periodoFin: string,
-  ): Promise<Array<{ periodo: string; contenido: string }>> {
-    const periodos = this.generarPeriodos(periodoInicio, periodoFin);
-    this.logger.log(`Obteniendo reportes para ${periodos.length} períodos: ${periodos.join(', ')}`);
-
-    const resultados: Array<{ periodo: string; contenido: string }> = [];
-
-    for (const periodo of periodos) {
-      try {
-        const contenido = await this.obtenerReporteFacturacion(periodo);
-        resultados.push({ periodo, contenido });
-      } catch (error) {
-        this.logger.warn(`Error obteniendo reporte para periodo ${periodo}: ${error.message}`);
-        resultados.push({ periodo, contenido: `ERROR: ${error.message}` });
-      }
-    }
-
-    return resultados;
-  }*/
+ 
  async obtenerReportesPorRango(
     periodoInicio: string,
     periodoFin: string,
@@ -396,8 +376,9 @@ export class SunatService {
         baseGravada: parseFloat(c[14]) || 0,
         igv: parseFloat(c[15]) || 0,
         montoNoGravado: parseFloat(c[20]) || 0,
-        total: parseFloat(c[24]) || 0,
-        moneda: c[25],
+          total: parseFloat(c[24]) || 0,
+          moneda: c[25],
+          tipodecambio: parseFloat(c[26]) || 0,
         estado: c[39] // Est. Comp.
       });
     }
