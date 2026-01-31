@@ -37,6 +37,51 @@ export class SunatService {
     private readonly configService: ConfigService,
   ) {}
 
+  async obtenerReportesPorRango(
+    periodoInicio: string,
+    periodoFin: string,
+  ): Promise<Array<{ periodo: string; contenido: string }>> {
+    const periodos = this.generarPeriodos(periodoInicio, periodoFin);
+    this.logger.log(`Obteniendo reportes para ${periodos.length} períodos: ${periodos.join(', ')}`);
+
+    const resultados: Array<{ periodo: string; contenido: string }> = [];
+
+    for (const periodo of periodos) {
+      try {
+        const contenido = await this.obtenerReporteFacturacion(periodo);
+        resultados.push({ periodo, contenido });
+      } catch (error) {
+        this.logger.warn(`Error obteniendo reporte para periodo ${periodo}: ${error.message}`);
+        resultados.push({ periodo, contenido: `ERROR: ${error.message}` });
+      }
+    }
+
+    return resultados;
+  }
+
+  private generarPeriodos(periodoInicio: string, periodoFin: string): string[] {
+    const periodos: string[] = [];
+
+    let anioActual = parseInt(periodoInicio.substring(0, 4), 10);
+    let mesActual = parseInt(periodoInicio.substring(4, 6), 10);
+
+    const anioFin = parseInt(periodoFin.substring(0, 4), 10);
+    const mesFin = parseInt(periodoFin.substring(4, 6), 10);
+
+    while (anioActual < anioFin || (anioActual === anioFin && mesActual <= mesFin)) {
+      const periodo = `${anioActual}${mesActual.toString().padStart(2, '0')}`;
+      periodos.push(periodo);
+
+      mesActual++;
+      if (mesActual > 12) {
+        mesActual = 1;
+        anioActual++;
+      }
+    }
+
+    return periodos;
+  }
+
   async obtenerReporteFacturacion(periodo: string): Promise<string> {
     this.logger.log(`Iniciando flujo de obtención de reporte para periodo: ${periodo}`);
 
