@@ -20,14 +20,17 @@ export class FacturaController {
 		const datos = await this.imageService.analizarImagen(file.buffer);
 
 		try {
-			const creada = await this.facturaService.crearDesdeOCR({
+			const resultado = await this.facturaService.crearDesdeOCR({
 				ruc: datos.ruc,
 				numero: datos.numero,
 				fecha: datos.fecha,
 				monto: datos.monto,
 				usuarioId: 1,
 			});
-			return { mensaje: 'Factura creada', id: creada.idFactura, datosDetectados: datos };
+			if (resultado.created === false) {
+				return { mensaje: 'Factura ya registrada', id: resultado.factura.idFactura, datosDetectados: datos };
+			}
+			return { mensaje: 'Factura creada', id: resultado.factura.idFactura, datosDetectados: datos };
 		} catch (error: any) {
 			this.logger.error('Error guardando factura desde OCR', error?.stack || error?.message || error);
 			throw new BadRequestException(error?.message || 'Error al crear factura');
