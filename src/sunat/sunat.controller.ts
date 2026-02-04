@@ -55,21 +55,5 @@ export class SunatController {
     const resultado = await this.sunatService.descargarXmlConScript({ rucEmisor, serie, numero, ruc, usuario_sol, clave_sol });
     return resultado;
   }
-
-  @Get('scraping/ultimo')
-  @HttpCode(HttpStatus.OK)
-  async getUltimoScraping(): Promise<any> {
-    return await this.sunatService.obtenerUltimoScraping();
-  }
-
-  @Get('scraping/ultimo/xml')
-  @HttpCode(HttpStatus.OK)
-  async getUltimoScrapingXml(@Res() res: Response) {
-    const { content, filename } = await this.sunatService.obtenerUltimoXml();
-    res.setHeader('Content-Type', 'text/xml');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(content);
-  }
-
   
 }

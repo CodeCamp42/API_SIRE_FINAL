@@ -653,26 +653,5 @@ export class SunatService {
       filename: xmlEntry.entryName,
     };
   }
-
-  async obtenerUltimoScraping(): Promise<any> {
-    try {
-      const { jsonContent } = await this._getLatestXmlContent();
-
-      return {
-        success: true,
-        fechaConsulta: new Date().toISOString(),
-        totalComprobantes: jsonContent ? 1 : 0,
-        comprobantes: jsonContent ? [jsonContent] : [],
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) throw error;
-      this.logger.error(`Error al procesar último scraping: ${error.message || error}`);
-      throw new HttpException(`Error procesando último scraping: ${error.message || error}`, HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  async obtenerUltimoXml(): Promise<{ content: string; filename: string }> {
-    const { xmlContent, filename } = await this._getLatestXmlContent();
-    return { content: xmlContent, filename };
-  }
+  
 }
