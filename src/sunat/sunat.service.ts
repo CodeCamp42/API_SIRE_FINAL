@@ -5,12 +5,17 @@ import {
   Logger,
   UnauthorizedException,
   GatewayTimeoutException,
+  NotFoundException,
   BadGatewayException,
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import * as AdmZip from 'adm-zip';
+import { spawn } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import {
   SunatAuthResponse,
   SunatTicketResponse,
@@ -63,6 +68,106 @@ export class SunatService {
     }
 
     return resultados;
+  }
+
+  private transformInvoice(parsedXml: any, filenameHint?: string): any | null {
+    try {
+      // El XML parseado puede tener la raíz 'Invoice' o espacios de nombres
+      const invoice = parsedXml?.Invoice || parsedXml;
+
+      // Helper mejorado para extraer valor de objetos xml2js (que pueden tener {_} o ser string directo)
+      const getValue = (val: any) => {
+        if (val == null) return null;
+        if (typeof val !== 'object') return val;
+        if (Array.isArray(val)) return getValue(val[0]);
+        return val['_'] || val['#text'] || val; // xml2js suele poner el texto en "_"
+      };
+
+      // Helper para buscar rutas, ahora usando getValue al final
+      const get = (obj: any, paths: string[]) => {
+        for (const p of paths) {
+          const parts = p.split('.');
+          let cur = obj;
+          let ok = true;
+          for (const part of parts) {
+            if (cur == null) { ok = false; break; }
+            cur = cur[part];
+          }
+          if (ok && cur != null) return getValue(cur);
+        }
+        return null;
+      };
+
+      const id = get(invoice, ['cbc:ID']);
+      const fechaEmision = get(invoice, ['cbc:IssueDate']);
+      const horaEmision = get(invoice, ['cbc:IssueTime']);
+
+      // Emisor
+      const supplierParty = invoice['cac:AccountingSupplierParty']?.['cac:Party'];
+      const supplierId = get(supplierParty, ['cac:PartyIdentification.cbc:ID']) || 
+                         get(supplierParty, ['cac:PartyIdentification.ID']); // Fallback sin namespace strict
+      const supplierName = get(supplierParty, ['cac:PartyLegalEntity.cbc:RegistrationName']) ||
+                           get(supplierParty, ['cac:PartyName.cbc:Name']);
+
+      // Receptor
+      const customerParty = invoice['cac:AccountingCustomerParty']?.['cac:Party'];
+      const customerId = get(customerParty, ['cac:PartyIdentification.cbc:ID']);
+      const customerName = get(customerParty, ['cac:PartyLegalEntity.cbc:RegistrationName']) ||
+                           get(customerParty, ['cac:PartyName.cbc:Name']);
+
+      // Totales
+      const totals = invoice['cac:LegalMonetaryTotal'];
+      const subtotal = parseFloat(get(totals, ['cbc:LineExtensionAmount']) || 0);
+      const igv = parseFloat(get(invoice, ['cac:TaxTotal.cbc:TaxAmount']) || 0);
+      const total = parseFloat(get(totals, ['cbc:PayableAmount']) || 0);
+      const moneda = get(invoice, ['cbc:DocumentCurrencyCode']);
+
+      // Items
+      let lines = invoice['cac:InvoiceLine'];
+      if (!lines) lines = [];
+      if (!Array.isArray(lines)) lines = [lines];
+
+      const items = lines.map((ln: any) => {
+        const qty = parseFloat(get(ln, ['cbc:InvoicedQuantity']) || 0);
+        // Unit code suele estar en atributo, e.g. cbc:InvoicedQuantity.$['unitCode']
+        const unidad = ln['cbc:InvoicedQuantity']?.['$']?.['unitCode'] || 'UNIDAD';
+        const codigo = get(ln, ['cac:Item.cac:SellersItemIdentification.cbc:ID']) || get(ln, ['cac:Item.cbc:ID']);
+        const descripcion = get(ln, ['cac:Item.cbc:Description']);
+        const valorUnitario = parseFloat(get(ln, ['cac:Price.cbc:PriceAmount']) || 0);
+        
+        return {
+          cantidad: qty,
+          unidad: unidad,
+          codigo: codigo,
+          descripcion: descripcion,
+          valorUnitario: valorUnitario,
+          icbper: 0,
+        };
+      });
+
+      return {
+        id,
+        fechaEmision,
+        horaEmision,
+        moneda,
+        emisor: {
+          ruc: supplierId,
+          nombre: supplierName,
+        },
+        receptor: {
+          ruc: customerId,
+          nombre: customerName,
+        },
+        subtotal,
+        igv,
+        total,
+        items,
+        archivoXml: filenameHint || '',
+      };
+    } catch (err) {
+      this.logger.warn('transformInvoice: error al mapear XML -> JSON', err.message || err);
+      return null;
+    }
   }
 
 
@@ -343,6 +448,115 @@ export class SunatService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  /**
+   * Ejecuta el script Python `descargaXml.py` en un directorio temporal con las credenciales y params
+   * Devuelve un Buffer con el ZIP resultante (todos los archivos descargados zipeados)
+   */
+  async descargarXmlConScript(options: { rucEmisor: string; serie: string; numero: string; ruc: string; usuario_sol: string; clave_sol: string; timeoutMs?: number; }): Promise<any> {
+    const { rucEmisor, serie, numero, ruc, usuario_sol, clave_sol, timeoutMs = 120000 } = options;
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sunat-'));
+    const downloadDir = path.join(tmpDir, 'downloads');
+    fs.mkdirSync(downloadDir, { recursive: true });
+
+    const scriptPath = path.resolve(process.cwd(), 'src', 'script', 'descargaXml.js');
+
+    const env = Object.assign({}, process.env, {
+      SUNAT_RUC: ruc,
+      SUNAT_USER: usuario_sol,
+      SUNAT_PASS: clave_sol,
+      DOWNLOAD_DIR: downloadDir,
+      RUC_EMISOR: rucEmisor,
+      SERIE: serie,
+      NUMERO: numero,
+      // Playwright needs to know where to find browsers if installed locally or global
+      // but usually standard env inheritance is enough.
+    });
+
+    this.logger.log(`Ejecutando script Node.js (Playwright) en ${tmpDir}`);
+
+    return new Promise<any>((resolve, reject) => {
+      const proc = spawn('node', [scriptPath], { env, cwd: process.cwd() });
+      let stdout = '';
+      let stderr = '';
+
+      const timeout = setTimeout(() => {
+        proc.kill('SIGKILL');
+        reject(new GatewayTimeoutException('Timeout ejecutando script de descarga'));
+      }, timeoutMs);
+
+      proc.stdout.on('data', (data) => { stdout += data.toString(); this.logger.debug(data.toString()); });
+      proc.stderr.on('data', (data) => { stderr += data.toString(); this.logger.error(data.toString()); });
+
+      proc.on('close', async (code) => {
+        clearTimeout(timeout);
+        this.logger.log(`Script finalizó con código ${code}`);
+
+        try {
+          const files = fs.readdirSync(downloadDir);
+          if (!files || files.length === 0) {
+            this.logger.warn('No se encontraron archivos descargados por el script');
+            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) {}
+            return reject(new BadGatewayException('No se descargaron archivos'));
+          }
+
+          // Priorizar búsqueda de ZIPs
+          const zipFiles = files.filter(f => f.toLowerCase().endsWith('.zip'));
+          const xmlFiles = files.filter(f => f.toLowerCase().endsWith('.xml'));
+
+          let xmlContent = '';
+          let filename = '';
+
+          if (zipFiles.length > 0) {
+            const zf = zipFiles[0];
+            const fullPath = path.join(downloadDir, zf);
+            const z = new AdmZip(fullPath);
+            const entries = z.getEntries().filter(e => e.entryName.toLowerCase().endsWith('.xml'));
+            if (entries.length > 0) {
+              xmlContent = entries[0].getData().toString('utf-8');
+              filename = entries[0].entryName;
+            }
+          } 
+          
+          if (!xmlContent && xmlFiles.length > 0) {
+            const xf = xmlFiles[0];
+            const fullPath = path.join(downloadDir, xf);
+            xmlContent = fs.readFileSync(fullPath, 'utf-8');
+            filename = xf;
+          }
+
+          if (!xmlContent) {
+            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) {}
+            return reject(new BadGatewayException('No se encontró contenido XML válido en la descarga'));
+          }
+
+          // Parsear XML a JSON
+          let parseStringPromise: any = null;
+          try {
+            const xml2js = require('xml2js');
+            parseStringPromise = xml2js.parseStringPromise;
+          } catch (err) {
+             try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) {}
+             return reject(new HttpException('Dependencia xml2js faltante', HttpStatus.INTERNAL_SERVER_ERROR));
+          }
+
+          const parsed = await parseStringPromise(xmlContent, { explicitArray: false, mergeAttrs: true });
+          const transformed = this.transformInvoice(parsed, filename);
+
+          // Cleanup
+          try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) {}
+          
+          resolve(transformed);
+
+        } catch (e) {
+          this.logger.error('Error procesando archivos del script', e.message || e);
+          try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) {}
+          reject(new BadGatewayException('Error procesando archivos del script'));
+        }
+      });
+    });
+  }
+
 
   private parsearContenidoSunat(texto: string): any[] {
     if (!texto) return [];
@@ -384,5 +598,81 @@ export class SunatService {
     }
 
     return resultados;
+  }
+
+
+  private async _getLatestXmlContent(): Promise<{ xmlContent: string; jsonContent: any; filename: string }> {
+    const scrapingDir = this.configService.get<string>('SCRAPING_DOWNLOAD_DIR')
+      || path.join(process.cwd(), 'downloads');
+
+    this.logger.log(`Buscando ZIPs de scraping en: ${scrapingDir}`);
+
+    if (!fs.existsSync(scrapingDir)) {
+      throw new NotFoundException('No existe el directorio de descargas del scraping.');
+    }
+
+    const files = fs.readdirSync(scrapingDir)
+      .map((f) => ({ name: f, full: path.join(scrapingDir, f) }))
+      .filter((f) => fs.statSync(f.full).isFile() && f.name.toLowerCase().endsWith('.zip'));
+
+    if (!files || files.length === 0) {
+      throw new NotFoundException('No se encontraron archivos ZIP de scraping en el directorio configurado.');
+    }
+
+    // Elegir el más reciente por mtime
+    files.sort((a, b) => fs.statSync(b.full).mtime.getTime() - fs.statSync(a.full).mtime.getTime());
+    const latest = files[0];
+    this.logger.log(`Usando ZIP más reciente: ${latest.name}`);
+
+    const zip = new AdmZip(latest.full);
+    const entries = zip.getEntries().filter((e) => e.entryName.toLowerCase().endsWith('.xml'));
+
+    if (!entries || entries.length === 0) {
+      throw new NotFoundException('No se encontró archivo XML dentro del ZIP más reciente.');
+    }
+
+    const xmlEntry = entries[0];
+    const xmlContent = xmlEntry.getData().toString('utf-8');
+
+    // Parsear XML a JSON
+    let parseStringPromise: any = null;
+    try {
+      const xml2js = require('xml2js');
+      parseStringPromise = xml2js.parseStringPromise;
+    } catch (err) {
+      this.logger.error('La dependencia "xml2js" no está instalada. Ejecuta: npm install xml2js');
+      throw new HttpException('Dependencia faltante: xml2js. Ejecuta `npm install xml2js` en el backend.', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    const parsed = await parseStringPromise(xmlContent, { explicitArray: false, mergeAttrs: true });
+    const transformed = this.transformInvoice(parsed, xmlEntry.entryName);
+
+    return {
+      xmlContent,
+      jsonContent: transformed,
+      filename: xmlEntry.entryName,
+    };
+  }
+
+  async obtenerUltimoScraping(): Promise<any> {
+    try {
+      const { jsonContent } = await this._getLatestXmlContent();
+
+      return {
+        success: true,
+        fechaConsulta: new Date().toISOString(),
+        totalComprobantes: jsonContent ? 1 : 0,
+        comprobantes: jsonContent ? [jsonContent] : [],
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error(`Error al procesar último scraping: ${error.message || error}`);
+      throw new HttpException(`Error procesando último scraping: ${error.message || error}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async obtenerUltimoXml(): Promise<{ content: string; filename: string }> {
+    const { xmlContent, filename } = await this._getLatestXmlContent();
+    return { content: xmlContent, filename };
   }
 }

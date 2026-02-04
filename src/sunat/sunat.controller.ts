@@ -1,4 +1,5 @@
-import { Controller, Get, Query, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Query, HttpCode, HttpStatus, BadRequestException, Post, Body, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { SunatService } from './sunat.service';
 
 @Controller('sunat')
@@ -42,4 +43,33 @@ export class SunatController {
       resultados, // TypeScript ahora aceptará esto porque los tipos coinciden
     };
   }
+
+
+  @Post('descargar-xml')
+  async descargarXmlPorScript(@Body() body: { rucEmisor: string; serie: string; numero: string; ruc: string; usuario_sol: string; clave_sol: string; }) {
+    const { rucEmisor, serie, numero, ruc, usuario_sol, clave_sol } = body;
+    if (!rucEmisor || !serie || !numero || !ruc || !usuario_sol || !clave_sol) {
+      throw new BadRequestException('Faltan parámetros: rucEmisor, serie, numero, ruc, usuario_sol, clave_sol');
+    }
+
+    const resultado = await this.sunatService.descargarXmlConScript({ rucEmisor, serie, numero, ruc, usuario_sol, clave_sol });
+    return resultado;
+  }
+
+  @Get('scraping/ultimo')
+  @HttpCode(HttpStatus.OK)
+  async getUltimoScraping(): Promise<any> {
+    return await this.sunatService.obtenerUltimoScraping();
+  }
+
+  @Get('scraping/ultimo/xml')
+  @HttpCode(HttpStatus.OK)
+  async getUltimoScrapingXml(@Res() res: Response) {
+    const { content, filename } = await this.sunatService.obtenerUltimoXml();
+    res.setHeader('Content-Type', 'text/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(content);
+  }
+
+  
 }
