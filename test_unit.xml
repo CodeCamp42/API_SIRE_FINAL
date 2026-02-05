@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cac:InvoiceLine>
+    <cbc:InvoicedQuantity unitCode="GLL">9.623</cbc:InvoicedQuantity>
+    <cac:Item>
+      <cbc:Description>GASOHOL PREMIUM</cbc:Description>
+    </cac:Item>
+  </cac:InvoiceLine>
+</Invoice>

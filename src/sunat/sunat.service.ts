@@ -28,6 +28,18 @@ import {
 export class SunatService {
   private readonly logger = new Logger(SunatService.name);
 
+  private readonly UNIT_MAP = {
+    'GLL': 'US GALON',
+    'NIU': 'UNIDAD',
+    'LDR': 'LITRO',
+    'KGM': 'KILOGRAMO',
+    'TNE': 'TONELADA',
+    'MTR': 'METRO',
+    'ZZ': 'UNIDAD',
+    'BX': 'CAJA',
+    'DZN': 'DOCENA',
+  };
+
   private readonly AUTH_BASE_URL = 'https://api-seguridad.sunat.gob.pe/v1/clientessol';
   private readonly SIRE_BASE_URL = 'https://api-sire.sunat.gob.pe/v1/contribuyente/migeigv/libros';
 
@@ -40,10 +52,10 @@ export class SunatService {
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
-  ) {}
+  ) { }
 
- 
- async obtenerReportesPorRango(
+
+  async obtenerReportesPorRango(
     periodoInicio: string,
     periodoFin: string,
   ): Promise<Array<{ periodo: string; contenido: any[] }>> {
@@ -55,10 +67,10 @@ export class SunatService {
     for (const periodo of periodos) {
       try {
         const contenidoTexto = await this.obtenerReporteFacturacion(periodo);
-        
+
         // Transformamos el string con pipes "|" a un Array de Objetos JSON
         const contenidoParseado = this.parsearContenidoSunat(contenidoTexto);
-        
+
         resultados.push({ periodo, contenido: contenidoParseado });
       } catch (error) {
         this.logger.warn(`Error obteniendo reporte para periodo ${periodo}: ${error.message}`);
@@ -104,16 +116,16 @@ export class SunatService {
 
       // Emisor
       const supplierParty = invoice['cac:AccountingSupplierParty']?.['cac:Party'];
-      const supplierId = get(supplierParty, ['cac:PartyIdentification.cbc:ID']) || 
-                         get(supplierParty, ['cac:PartyIdentification.ID']); // Fallback sin namespace strict
+      const supplierId = get(supplierParty, ['cac:PartyIdentification.cbc:ID']) ||
+        get(supplierParty, ['cac:PartyIdentification.ID']); // Fallback sin namespace strict
       const supplierName = get(supplierParty, ['cac:PartyLegalEntity.cbc:RegistrationName']) ||
-                           get(supplierParty, ['cac:PartyName.cbc:Name']);
+        get(supplierParty, ['cac:PartyName.cbc:Name']);
 
       // Receptor
       const customerParty = invoice['cac:AccountingCustomerParty']?.['cac:Party'];
       const customerId = get(customerParty, ['cac:PartyIdentification.cbc:ID']);
       const customerName = get(customerParty, ['cac:PartyLegalEntity.cbc:RegistrationName']) ||
-                           get(customerParty, ['cac:PartyName.cbc:Name']);
+        get(customerParty, ['cac:PartyName.cbc:Name']);
 
       // Totales
       const totals = invoice['cac:LegalMonetaryTotal'];
@@ -129,12 +141,13 @@ export class SunatService {
 
       const items = lines.map((ln: any) => {
         const qty = parseFloat(get(ln, ['cbc:InvoicedQuantity']) || 0);
-        // Unit code suele estar en atributo, e.g. cbc:InvoicedQuantity.$['unitCode']
-        const unidad = ln['cbc:InvoicedQuantity']?.['$']?.['unitCode'] || 'UNIDAD';
+        // unitCode está directo en el objeto por mergeAttrs: true
+        const unitCode = ln['cbc:InvoicedQuantity']?.['unitCode'] || 'NIU';
+        const unidad = this.UNIT_MAP[unitCode] || unitCode;
         const codigo = get(ln, ['cac:Item.cac:SellersItemIdentification.cbc:ID']) || get(ln, ['cac:Item.cbc:ID']);
         const descripcion = get(ln, ['cac:Item.cbc:Description']);
         const valorUnitario = parseFloat(get(ln, ['cac:Price.cbc:PriceAmount']) || 0);
-        
+
         return {
           cantidad: qty,
           unidad: unidad,
@@ -344,9 +357,9 @@ export class SunatService {
         );
 
         const registros = response.data.registros;
-        
+
         this.logger.debug(`Respuesta SUNAT: ${JSON.stringify(response.data, null, 2)}`);
-        
+
         if (!registros || registros.length === 0) {
           this.logger.debug('No se encontraron registros aún, esperando...');
           await this.delay(this.POLLING_INTERVAL_MS);
@@ -496,13 +509,15 @@ export class SunatService {
           const files = fs.readdirSync(downloadDir);
           if (!files || files.length === 0) {
             this.logger.warn('No se encontraron archivos descargados por el script');
-            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) {}
+            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) { }
             return reject(new BadGatewayException('No se descargaron archivos'));
           }
 
-          // Priorizar búsqueda de ZIPs
+          // Priorizar búsqueda de ZIPs y filtrar archivos CDR (R-...)
           const zipFiles = files.filter(f => f.toLowerCase().endsWith('.zip'));
-          const xmlFiles = files.filter(f => f.toLowerCase().endsWith('.xml'));
+          const xmlFiles = files.filter(f =>
+            f.toLowerCase().endsWith('.xml') && !f.toUpperCase().startsWith('R-')
+          );
 
           let xmlContent = '';
           let filename = '';
@@ -511,13 +526,15 @@ export class SunatService {
             const zf = zipFiles[0];
             const fullPath = path.join(downloadDir, zf);
             const z = new AdmZip(fullPath);
-            const entries = z.getEntries().filter(e => e.entryName.toLowerCase().endsWith('.xml'));
+            const entries = z.getEntries().filter(e =>
+              e.entryName.toLowerCase().endsWith('.xml') && !e.entryName.toUpperCase().startsWith('R-')
+            );
             if (entries.length > 0) {
               xmlContent = entries[0].getData().toString('utf-8');
               filename = entries[0].entryName;
             }
-          } 
-          
+          }
+
           if (!xmlContent && xmlFiles.length > 0) {
             const xf = xmlFiles[0];
             const fullPath = path.join(downloadDir, xf);
@@ -526,7 +543,7 @@ export class SunatService {
           }
 
           if (!xmlContent) {
-            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) {}
+            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) { }
             return reject(new BadGatewayException('No se encontró contenido XML válido en la descarga'));
           }
 
@@ -536,21 +553,21 @@ export class SunatService {
             const xml2js = require('xml2js');
             parseStringPromise = xml2js.parseStringPromise;
           } catch (err) {
-             try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) {}
-             return reject(new HttpException('Dependencia xml2js faltante', HttpStatus.INTERNAL_SERVER_ERROR));
+            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) { }
+            return reject(new HttpException('Dependencia xml2js faltante', HttpStatus.INTERNAL_SERVER_ERROR));
           }
 
           const parsed = await parseStringPromise(xmlContent, { explicitArray: false, mergeAttrs: true });
           const transformed = this.transformInvoice(parsed, filename);
 
           // Cleanup
-          try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) {}
-          
+          try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) { }
+
           resolve(transformed);
 
         } catch (e) {
           this.logger.error('Error procesando archivos del script', e.message || e);
-          try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) {}
+          try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) { }
           reject(new BadGatewayException('Error procesando archivos del script'));
         }
       });
@@ -563,7 +580,7 @@ export class SunatService {
 
     // 1. Separamos por líneas
     const lineas = texto.split('\n');
-    
+
     // 2. La primera línea son los encabezados, la saltamos
     // La data real empieza en la línea índice 1
     const registrosRaw = lineas.slice(1);
@@ -590,9 +607,9 @@ export class SunatService {
         baseGravada: parseFloat(c[14]) || 0,
         igv: parseFloat(c[15]) || 0,
         montoNoGravado: parseFloat(c[20]) || 0,
-          total: parseFloat(c[24]) || 0,
-          moneda: c[25],
-          tipodecambio: parseFloat(c[26]) || 0,
+        total: parseFloat(c[24]) || 0,
+        moneda: c[25],
+        tipodecambio: parseFloat(c[26]) || 0,
         estado: c[39] // Est. Comp.
       });
     }
@@ -625,7 +642,9 @@ export class SunatService {
     this.logger.log(`Usando ZIP más reciente: ${latest.name}`);
 
     const zip = new AdmZip(latest.full);
-    const entries = zip.getEntries().filter((e) => e.entryName.toLowerCase().endsWith('.xml'));
+    const entries = zip.getEntries().filter((e) =>
+      e.entryName.toLowerCase().endsWith('.xml') && !e.entryName.toUpperCase().startsWith('R-')
+    );
 
     if (!entries || entries.length === 0) {
       throw new NotFoundException('No se encontró archivo XML dentro del ZIP más reciente.');
