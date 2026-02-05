@@ -1,7 +1,8 @@
-import { Controller, Post, UseInterceptors, UploadedFile, BadRequestException, Logger } from '@nestjs/common';
+import { Controller, Post, UseInterceptors, UploadedFile, BadRequestException, Logger, Body } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImageRecognitionService } from './image-recognition.service';
 import { FacturaService } from './factura.service';
+import { CrearFacturaDto } from './dto/factura.dto';
 
 @Controller('factura')
 export class FacturaController {
@@ -35,5 +36,15 @@ export class FacturaController {
 			this.logger.error('Error guardando factura desde OCR', error?.stack || error?.message || error);
 			throw new BadRequestException(error?.message || 'Error al crear factura');
 		}
+	}
+
+	@Post('procesarFactura')
+	async procesarFactura(@Body() data: CrearFacturaDto) {
+		this.logger.log('Petición recibida en procesarFactura', { count: data.facturas?.length });
+		const resultados = await this.facturaService.procesarFacturas(data);
+		return {
+			message: 'Proceso de facturas completado',
+			resultados,
+		};
 	}
 }
