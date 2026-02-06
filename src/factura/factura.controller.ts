@@ -1,4 +1,4 @@
-import { Controller, Post, UseInterceptors, UploadedFile, BadRequestException, Logger, Body } from '@nestjs/common';
+import { Controller, Post, UseInterceptors, UploadedFile, BadRequestException, Logger, Body, Get, Param, NotFoundException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImageRecognitionService } from './image-recognition.service';
 import { FacturaService } from './factura.service';
@@ -46,5 +46,17 @@ export class FacturaController {
 			message: 'Proceso de facturas completado',
 			resultados,
 		};
+	}
+
+	@Get(':numeroComprobante')
+	async obtenerFactura(@Param('numeroComprobante') numeroComprobante: string) {
+		this.logger.log(`Petición GET recibida para factura: ${numeroComprobante}`);
+		const factura = await this.facturaService.buscarPorNumero(numeroComprobante);
+
+		if (!factura) {
+			throw new NotFoundException(`Factura con número ${numeroComprobante} no encontrada`);
+		}
+
+		return factura;
 	}
 }

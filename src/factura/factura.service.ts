@@ -130,4 +130,16 @@ export class FacturaService {
 		this.logger.log('Factura creada desde OCR', { id: created.idFactura });
 		return { created: true, factura: created } as { created: boolean; factura: any };
 	}
+
+	async buscarPorNumero(numeroComprobante: string) {
+		this.logger.log(`Buscando factura por número: ${numeroComprobante}`);
+		return await this.prisma.factura.findUnique({
+			where: { numeroComprobante },
+			include: {
+				detalles: true,
+				proveedor: true,
+				comprobanteElectronico: true,
+			},
+		});
+	}
 }
