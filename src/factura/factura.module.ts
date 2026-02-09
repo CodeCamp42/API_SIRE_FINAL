@@ -5,6 +5,7 @@ import { ImageRecognitionService } from './image-recognition.service';
 
 @Module({
   controllers: [FacturaController],
-  providers: [FacturaService, ImageRecognitionService]
+  providers: [FacturaService, ImageRecognitionService],
+  exports: [FacturaService]
 })
-export class FacturaModule {}
+export class FacturaModule { }

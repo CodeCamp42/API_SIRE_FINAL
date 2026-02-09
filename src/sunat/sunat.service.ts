@@ -10,6 +10,8 @@ import {
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { firstValueFrom } from 'rxjs';
 import * as AdmZip from 'adm-zip';
 import { spawn } from 'child_process';
@@ -52,6 +54,7 @@ export class SunatService {
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    @InjectQueue('scraping') private readonly scrapingQueue: Queue,
   ) { }
 
 
@@ -672,5 +675,58 @@ export class SunatService {
       filename: xmlEntry.entryName,
     };
   }
-  
+
+  async encolarScraping(data: any) {
+    this.logger.log(`Encolando trabajo de scraping para ${data.serie}-${data.numero}`);
+    const job = await this.scrapingQueue.add('descargar-xml', data, {
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 5000,
+      },
+      removeOnComplete: {
+        age: 3600, // Mantener por 1 hora
+        count: 1000, // O hasta 1000 trabajos
+      },
+      removeOnFail: {
+        age: 24 * 3600, // Mantener por 24 horas si falla
+      },
+    });
+
+    return {
+      success: true,
+      jobId: job.id,
+      message: 'Trabajo de scraping encolado correctamente',
+    };
+  }
+
+  async getJobStatus(jobId: string) {
+    const job = await this.scrapingQueue.getJob(jobId);
+
+    if (!job) {
+      throw new NotFoundException(`Trabajo con ID ${jobId} no encontrado`);
+    }
+
+    const state = await job.getState();
+    const progress = job.progress;
+    const result = job.returnvalue;
+    const reason = job.failedReason;
+
+    return {
+      id: job.id,
+      state,
+      progress,
+      result,
+      reason,
+    };
+  }
+
+  async vaciarCola() {
+    this.logger.log('Vaciando cola de scraping...');
+    await this.scrapingQueue.obliterate({ force: true });
+    return {
+      success: true,
+      message: 'Cola de scraping vaciada correctamente (obliterated)',
+    };
+  }
 }

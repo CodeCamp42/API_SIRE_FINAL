@@ -6,11 +6,11 @@ import { CrearFacturaDto, FacturaDto } from './dto/factura.dto';
 @Injectable()
 export class FacturaService {
   private readonly logger = new Logger(FacturaService.name);
-  
-  constructor(private readonly prisma: PrismaService) {}
+
+  constructor(private readonly prisma: PrismaService) { }
 
   // ==================== MÉTODOS EXISTENTES ====================
-  
+
   async procesarFacturas(data: CrearFacturaDto) {
     const resultados = [];
 
@@ -20,11 +20,11 @@ export class FacturaService {
         resultados.push(res);
       } catch (error: any) {
         this.logger.error(`Error procesando factura ${facturaDto.serie}-${facturaDto.numero}: ${error.message}`);
-        resultados.push({ 
-          success: false, 
-          error: error.message, 
-          serie: facturaDto.serie, 
-          numero: facturaDto.numero 
+        resultados.push({
+          success: false,
+          error: error.message,
+          serie: facturaDto.serie,
+          numero: facturaDto.numero
         });
       }
     }
@@ -33,13 +33,13 @@ export class FacturaService {
   }
 
   // ✅ **MÉTODO MODIFICADO: Ahora marca como REGISTRADO cuando viene de /procesarFactura**
-  private async guardarFactura(f: FacturaDto) {
+  async guardarFactura(f: FacturaDto) {
     await this.prisma.proveedor.upsert({
       where: { rucProveedor: f.rucEmisor },
-      update: { razonSocial: f.razonSocial },
-      create: { 
-        rucProveedor: f.rucEmisor, 
-        razonSocial: f.razonSocial 
+      update: { razonSocial: this.sanitizeString(f.razonSocial) },
+      create: {
+        rucProveedor: f.rucEmisor,
+        razonSocial: this.sanitizeString(f.razonSocial)
       },
     });
 
@@ -53,16 +53,16 @@ export class FacturaService {
     if (existente) {
       const [day, month, year] = f.fechaEmision.split('/').map(Number);
       const fechaEmision = new Date(year, month - 1, day);
-      
+
       // ✅ **IMPORTANTE: Cuando viene de /procesarFactura, significa que el usuario presionó "Registrar"**
       // Por lo tanto, debemos marcar como REGISTRADO (excepto si ya está CONTABILIZADO)
       let nuevoEstado = existente.estado;
-      
+
       if (existente.estado !== EstadoFactura.CONTABILIZADO) {
         // Si viene de "Registrar", cambiar a REGISTRADO
         nuevoEstado = EstadoFactura.REGISTRADO;
       }
-      
+
       await this.prisma.factura.update({
         where: { numeroComprobante },
         data: {
@@ -79,7 +79,7 @@ export class FacturaService {
         await this.prisma.detalleFactura.deleteMany({
           where: { facturaId: existente.idFactura },
         });
-        
+
         await this.prisma.detalleFactura.createMany({
           data: f.productos.map(p => ({
             facturaId: existente.idFactura,
@@ -93,10 +93,10 @@ export class FacturaService {
 
       this.logger.log(`✅ Factura ${numeroComprobante} actualizada y marcada como ${nuevoEstado}`);
 
-      return { 
-        success: true, 
-        message: 'Factura actualizada y registrada', 
-        id: existente.idFactura, 
+      return {
+        success: true,
+        message: 'Factura actualizada y registrada',
+        id: existente.idFactura,
         numeroComprobante,
         actualizada: true,
         estado: nuevoEstado
@@ -122,37 +122,37 @@ export class FacturaService {
         proveedorRuc: f.rucEmisor,
         detalles: {
           create: f.productos.map(p => ({
-            descripcion: p.descripcion,
+            descripcion: this.sanitizeString(p.descripcion),
             cantidad: new Prisma.Decimal(Number(p.cantidad)),
             costoUnitario: new Prisma.Decimal(Number(p.costoUnitario)),
-            unidadMedida: p.unidadMedida,
+            unidadMedida: this.sanitizeString(p.unidadMedida),
           })),
         },
       },
       include: { detalles: true },
     });
 
-    return { 
-      success: true, 
-      message: 'Factura creada', 
-      id: nuevaFactura.idFactura, 
+    return {
+      success: true,
+      message: 'Factura creada',
+      id: nuevaFactura.idFactura,
       numeroComprobante,
       creada: true
     };
   }
 
-  async crearDesdeOCR(datos: { 
-    ruc?: string; 
-    numero?: string; 
-    fecha?: string; 
-    monto?: string; 
-    usuarioId?: number 
+  async crearDesdeOCR(datos: {
+    ruc?: string;
+    numero?: string;
+    fecha?: string;
+    monto?: string;
+    usuarioId?: number
   }) {
-    this.logger.log('Crear factura desde OCR', { 
-      resumen: { 
-        ruc: datos.ruc, 
-        numero: datos.numero 
-      } 
+    this.logger.log('Crear factura desde OCR', {
+      resumen: {
+        ruc: datos.ruc,
+        numero: datos.numero
+      }
     });
 
     if (!datos.ruc) throw new Error('RUC no detectado en la imagen');
@@ -161,24 +161,24 @@ export class FacturaService {
     await this.prisma.proveedor.upsert({
       where: { rucProveedor: datos.ruc },
       update: {},
-      create: { 
-        rucProveedor: datos.ruc, 
-        razonSocial: 'Proveedor desde OCR' 
+      create: {
+        rucProveedor: datos.ruc,
+        razonSocial: 'Proveedor desde OCR'
       },
     });
 
-    const existente = await this.prisma.factura.findUnique({ 
-      where: { numeroComprobante: datos.numero } 
+    const existente = await this.prisma.factura.findUnique({
+      where: { numeroComprobante: datos.numero }
     });
-    
+
     if (existente) {
-      this.logger.warn('Factura ya registrada', { 
-        id: existente.idFactura, 
-        numero: datos.numero 
+      this.logger.warn('Factura ya registrada', {
+        id: existente.idFactura,
+        numero: datos.numero
       });
-      return { 
-        created: false, 
-        factura: existente 
+      return {
+        created: false,
+        factura: existente
       };
     }
 
@@ -210,19 +210,19 @@ export class FacturaService {
       },
     });
 
-    this.logger.log('Factura creada desde OCR', { 
-      id: created.idFactura 
+    this.logger.log('Factura creada desde OCR', {
+      id: created.idFactura
     });
-    
-    return { 
-      created: true, 
-      factura: created 
+
+    return {
+      created: true,
+      factura: created
     };
   }
 
   async buscarPorNumero(numeroComprobante: string) {
     this.logger.log(`Buscando factura por número: ${numeroComprobante}`);
-    
+
     const factura = await this.prisma.factura.findUnique({
       where: { numeroComprobante },
       include: {
@@ -236,7 +236,7 @@ export class FacturaService {
 
     // ✅ **REGLA CORREGIDA: REGISTRADO/CONTABILIZADO tienen prioridad sobre CON_DETALLE**
     let estadoFinal = factura.estado;
-    
+
     if (factura.estado === EstadoFactura.CONTABILIZADO) {
       estadoFinal = EstadoFactura.CONTABILIZADO;
     } else if (factura.estado === EstadoFactura.REGISTRADO) {
@@ -244,7 +244,7 @@ export class FacturaService {
     } else if (factura.estado === EstadoFactura.CON_DETALLE) {
       estadoFinal = EstadoFactura.CON_DETALLE;
     }
-    
+
     return {
       ...factura,
       estadoFinal,
@@ -257,22 +257,22 @@ export class FacturaService {
     this.logger.log(`=== GUARDAR PRODUCTOS FACTURA ===`);
     this.logger.log(`Factura: ${numeroComprobante}`);
     this.logger.log(`Productos a guardar: ${productos.length}`);
-    
+
     try {
       const factura = await this.prisma.factura.findUnique({
         where: { numeroComprobante },
       });
-      
+
       if (!factura) {
         throw new Error(`Factura ${numeroComprobante} no encontrada`);
       }
-      
+
       await this.prisma.detalleFactura.deleteMany({
         where: { facturaId: factura.idFactura },
       });
-      
+
       this.logger.log(`Productos anteriores eliminados para factura ID: ${factura.idFactura}`);
-      
+
       const productosCreados = await this.prisma.detalleFactura.createMany({
         data: productos.map(p => ({
           facturaId: factura.idFactura,
@@ -283,7 +283,7 @@ export class FacturaService {
         })),
         skipDuplicates: false,
       });
-      
+
       // ✅ **SOLO marcar como CON_DETALLE si está en CONSULTADO**
       let estadoActualizado = false;
       if (factura.estado === EstadoFactura.CONSULTADO) {
@@ -293,11 +293,11 @@ export class FacturaService {
         });
         estadoActualizado = true;
       }
-      
+
       this.logger.log(`✅ Productos guardados exitosamente`);
       this.logger.log(`📦 Cantidad: ${productosCreados.count}`);
       this.logger.log(`🏷️ Estado actualizado: ${estadoActualizado ? 'Sí' : 'No'}`);
-      
+
       return {
         success: true,
         productosGuardados: productosCreados.count,
@@ -314,49 +314,49 @@ export class FacturaService {
     this.logger.log(`=== SCRAPING COMPLETADO CON PRODUCTOS ===`);
     this.logger.log(`Número de comprobante: ${numeroComprobante}`);
     this.logger.log(`Productos recibidos: ${productos?.length || 0}`);
-    
+
     try {
       const factura = await this.prisma.factura.findUnique({
         where: { numeroComprobante },
         include: { detalles: true },
       });
-      
+
       if (!factura) {
         throw new Error(`Factura ${numeroComprobante} no encontrada`);
       }
-      
+
       let productosGuardados = 0;
       if (productos && productos.length > 0) {
         const resultado = await this.guardarProductosFactura(numeroComprobante, productos);
         productosGuardados = resultado.productosGuardados;
       }
-      
+
       // ✅ **SOLO marcar como CON_DETALLE si está en CONSULTADO**
       let estadoFinal: EstadoFactura;
-      
-      if (factura.estado === EstadoFactura.REGISTRADO || 
-          factura.estado === EstadoFactura.CONTABILIZADO) {
+
+      if (factura.estado === EstadoFactura.REGISTRADO ||
+        factura.estado === EstadoFactura.CONTABILIZADO) {
         estadoFinal = factura.estado;
         this.logger.warn(`Factura ya está ${factura.estado}, no se cambia a CON_DETALLE`);
       } else {
         estadoFinal = EstadoFactura.CON_DETALLE;
       }
-      
+
       const actualizada = await this.prisma.factura.update({
         where: { numeroComprobante },
         data: { estado: estadoFinal },
         include: { detalles: true, proveedor: true },
       });
-      
+
       this.logger.log(`✅ Factura ${actualizada.numeroComprobante} marcada como ${estadoFinal}`);
       this.logger.log(`📦 Productos guardados: ${productosGuardados}`);
-      
+
       return {
         success: true,
         factura: actualizada,
         productosGuardados,
-        mensaje: estadoFinal === EstadoFactura.CON_DETALLE 
-          ? 'Estado CON_DETALLE persistido permanentemente' 
+        mensaje: estadoFinal === EstadoFactura.CON_DETALLE
+          ? 'Estado CON_DETALLE persistido permanentemente'
           : `Factura mantiene estado ${estadoFinal}`,
       };
     } catch (error: any) {
@@ -371,7 +371,7 @@ export class FacturaService {
   // ✅ **MÉTODO CLAVE: Obtener factura para UI con jerarquía correcta**
   async obtenerFacturaParaUI(numeroComprobante: string) {
     this.logger.log(`Obteniendo factura para UI: ${numeroComprobante}`);
-    
+
     const factura = await this.prisma.factura.findUnique({
       where: { numeroComprobante },
       include: {
@@ -391,7 +391,7 @@ export class FacturaService {
     // 3. CON_DETALLE
     // 4. CONSULTADO (menor prioridad)
     let estadoFinal = factura.estado;
-    
+
     if (factura.estado === EstadoFactura.CONTABILIZADO) {
       estadoFinal = EstadoFactura.CONTABILIZADO;
     } else if (factura.estado === EstadoFactura.REGISTRADO) {
@@ -414,7 +414,7 @@ export class FacturaService {
   // ✅ **MÉTODO CLAVE: Obtener todas las facturas con jerarquía correcta**
   async obtenerFacturasParaUI(usuarioId: number = 1) {
     this.logger.log(`Obteniendo facturas para UI - Usuario: ${usuarioId}`);
-    
+
     const facturas = await this.prisma.factura.findMany({
       where: { usuarioId },
       include: {
@@ -427,7 +427,7 @@ export class FacturaService {
     const facturasFormateadas = facturas.map(factura => {
       // ✅ **MISMA JERARQUÍA DE ESTADOS**
       let estadoFinal = factura.estado;
-      
+
       if (factura.estado === EstadoFactura.CONTABILIZADO) {
         estadoFinal = EstadoFactura.CONTABILIZADO;
       } else if (factura.estado === EstadoFactura.REGISTRADO) {
@@ -435,7 +435,7 @@ export class FacturaService {
       } else if (factura.estado === EstadoFactura.CON_DETALLE) {
         estadoFinal = EstadoFactura.CON_DETALLE;
       }
-      
+
       return {
         ...factura,
         estado: this.formatearEstadoParaUI(factura.estado),
@@ -451,30 +451,30 @@ export class FacturaService {
   async marcarConDetalle(numeroComprobante: string) {
     this.logger.log(`=== MARCAR CON DETALLE INICIADO ===`);
     this.logger.log(`Factura: ${numeroComprobante}`);
-    
+
     try {
       const facturaExistente = await this.prisma.factura.findUnique({
         where: { numeroComprobante },
       });
-      
+
       if (!facturaExistente) {
         throw new Error(`Factura ${numeroComprobante} no encontrada`);
       }
-      
+
       this.logger.log(`Estado actual: ${facturaExistente.estado}`);
-      
-      if (facturaExistente.estado === EstadoFactura.REGISTRADO || 
-          facturaExistente.estado === EstadoFactura.CONTABILIZADO) {
+
+      if (facturaExistente.estado === EstadoFactura.REGISTRADO ||
+        facturaExistente.estado === EstadoFactura.CONTABILIZADO) {
         this.logger.warn(`Factura ya está ${facturaExistente.estado}, no se cambia`);
         return facturaExistente;
       }
-      
+
       const factura = await this.prisma.factura.update({
         where: { numeroComprobante },
         data: { estado: EstadoFactura.CON_DETALLE },
         include: { detalles: true, proveedor: true },
       });
-      
+
       this.logger.log(`✅ Estado actualizado a: ${factura.estado}`);
       return factura;
     } catch (error: any) {
@@ -486,13 +486,13 @@ export class FacturaService {
   async registrarFactura(numeroComprobante: string) {
     this.logger.log(`=== REGISTRAR FACTURA INICIADO ===`);
     this.logger.log(`Factura: ${numeroComprobante}`);
-    
+
     try {
       const factura = await this.prisma.factura.update({
         where: { numeroComprobante },
         data: { estado: EstadoFactura.REGISTRADO },
       });
-      
+
       this.logger.log(`✅ Estado actualizado a: ${factura.estado}`);
       return factura;
     } catch (error: any) {
@@ -504,7 +504,7 @@ export class FacturaService {
   async obtenerFacturasPorUsuario(usuarioId: number = 1) {
     this.logger.log(`=== OBTENER FACTURAS INICIADO ===`);
     this.logger.log(`Usuario: ${usuarioId}`);
-    
+
     try {
       const facturas = await this.prisma.factura.findMany({
         where: { usuarioId },
@@ -518,7 +518,7 @@ export class FacturaService {
 
       const facturasConEstado = facturas.map(factura => {
         let estadoFinal = factura.estado;
-        
+
         // ✅ **MISMA JERARQUÍA**
         if (factura.estado === EstadoFactura.CONTABILIZADO) {
           estadoFinal = EstadoFactura.CONTABILIZADO;
@@ -527,7 +527,7 @@ export class FacturaService {
         } else if (factura.estado === EstadoFactura.CON_DETALLE) {
           estadoFinal = EstadoFactura.CON_DETALLE;
         }
-        
+
         return {
           ...factura,
           estadoFinal,
@@ -541,10 +541,10 @@ export class FacturaService {
         acc[f.estadoFinal] = (acc[f.estadoFinal] || 0) + 1;
         return acc;
       }, {});
-      
+
       this.logger.log(`Total facturas: ${facturasConEstado.length}`);
       this.logger.log(`Distribución: ${JSON.stringify(distribucion)}`);
-      
+
       return facturasConEstado;
     } catch (error: any) {
       this.logger.error(`❌ Error obteniendo facturas: ${error.message}`);
@@ -554,7 +554,7 @@ export class FacturaService {
 
   async actualizarEstadoFactura(numeroComprobante: string, nuevoEstado: EstadoFactura) {
     this.logger.log(`Actualizando estado de factura ${numeroComprobante} a ${nuevoEstado}`);
-    
+
     try {
       const factura = await this.prisma.factura.update({
         where: { numeroComprobante },
@@ -562,7 +562,7 @@ export class FacturaService {
           estado: nuevoEstado,
         },
       });
-      
+
       this.logger.log(`Estado actualizado exitosamente`);
       return factura;
     } catch (error: any) {
@@ -574,27 +574,27 @@ export class FacturaService {
   async registrarDesdeSunat(datos: any) {
     this.logger.log('=== REGISTRAR FACTURA DESDE SUNAT ===');
     this.logger.log(`Datos: ${JSON.stringify(datos)}`);
-    
+
     const numeroComprobante = `${datos.serie}-${datos.numero}`;
-    
+
     const existente = await this.prisma.factura.findUnique({
       where: { numeroComprobante },
     });
-    
+
     if (existente) {
       this.logger.log(`Factura ${numeroComprobante} ya existe en BD`);
       return existente;
     }
-    
+
     await this.prisma.proveedor.upsert({
       where: { rucProveedor: datos.rucEmisor },
-      update: { razonSocial: datos.razonSocial },
+      update: { razonSocial: this.sanitizeString(datos.razonSocial) },
       create: {
         rucProveedor: datos.rucEmisor,
-        razonSocial: datos.razonSocial,
+        razonSocial: this.sanitizeString(datos.razonSocial),
       },
     });
-    
+
     let fechaEmision: Date;
     try {
       const [day, month, year] = datos.fechaEmision.split('/').map(Number);
@@ -602,7 +602,7 @@ export class FacturaService {
     } catch (error) {
       fechaEmision = new Date();
     }
-    
+
     const factura = await this.prisma.factura.create({
       data: {
         numeroComprobante,
@@ -618,9 +618,16 @@ export class FacturaService {
         proveedorRuc: datos.rucEmisor,
       },
     });
-    
+
     this.logger.log(`✅ Factura ${numeroComprobante} registrada en BD con ID: ${factura.idFactura}`);
     return factura;
+  }
+
+  // ✅ **HELPER: Sanitizar strings para evitar errores de codificación (WIN1252/UTF8)**
+  private sanitizeString(str: string): string {
+    if (!str) return '';
+    // Elimina el carácter de reemplazo Unicode (0xef 0xbf 0xbd) y otros caracteres no compatibles
+    return str.replace(/\uFFFD/g, '').trim();
   }
 
   // ✅ **HELPER: Formatear estados para UI**
@@ -631,7 +638,7 @@ export class FacturaService {
       [EstadoFactura.REGISTRADO]: 'REGISTRADO',
       [EstadoFactura.CONTABILIZADO]: 'CONTABILIZADO',
     };
-    
+
     return estadoMap[estado] || estado;
   }
 }

@@ -1,10 +1,10 @@
-import { Controller, Get, Query, HttpCode, HttpStatus, BadRequestException, Post, Body, Res } from '@nestjs/common';
+import { Controller, Get, Query, HttpCode, HttpStatus, BadRequestException, Post, Body, Res, Param } from '@nestjs/common';
 import { Response } from 'express';
 import { SunatService } from './sunat.service';
 
 @Controller('sunat')
 export class SunatController {
-  constructor(private readonly sunatService: SunatService) {}
+  constructor(private readonly sunatService: SunatService) { }
 
 
   @Get('facturas')
@@ -45,6 +45,17 @@ export class SunatController {
   }
 
 
+  /*@Post('descargar-xml')
+    async descargarXmlPorScript(@Body() body: { rucEmisor: string; serie: string; numero: string; ruc: string; usuario_sol: string; clave_sol: string; }) {
+      const { rucEmisor, serie, numero, ruc, usuario_sol, clave_sol } = body;
+      if (!rucEmisor || !serie || !numero || !ruc || !usuario_sol || !clave_sol) {
+        throw new BadRequestException('Faltan parámetros: rucEmisor, serie, numero, ruc, usuario_sol, clave_sol');
+      }
+  
+      const resultado = await this.sunatService.descargarXmlConScript({ rucEmisor, serie, numero, ruc, usuario_sol, clave_sol });
+      return resultado;
+    }*/
+
   @Post('descargar-xml')
   async descargarXmlPorScript(@Body() body: { rucEmisor: string; serie: string; numero: string; ruc: string; usuario_sol: string; clave_sol: string; }) {
     const { rucEmisor, serie, numero, ruc, usuario_sol, clave_sol } = body;
@@ -52,8 +63,18 @@ export class SunatController {
       throw new BadRequestException('Faltan parámetros: rucEmisor, serie, numero, ruc, usuario_sol, clave_sol');
     }
 
-    const resultado = await this.sunatService.descargarXmlConScript({ rucEmisor, serie, numero, ruc, usuario_sol, clave_sol });
-    return resultado;
+    // Ahora encola un trabajo en lugar de ejecutarlo síncronamente
+    return await this.sunatService.encolarScraping({ rucEmisor, serie, numero, ruc, usuario_sol, clave_sol });
   }
-  
+
+  @Get('job/:id')
+  async getJobStatus(@Param('id') id: string) {
+    return await this.sunatService.getJobStatus(id);
+  }
+
+  @Post('limpiar-cola')
+  @HttpCode(HttpStatus.OK)
+  async limpiarCola() {
+    return await this.sunatService.vaciarCola();
+  }
 }
