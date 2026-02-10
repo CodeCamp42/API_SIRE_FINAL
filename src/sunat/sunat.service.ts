@@ -526,15 +526,17 @@ export class SunatService {
           let filename = '';
 
           if (zipFiles.length > 0) {
-            const zf = zipFiles[0];
-            const fullPath = path.join(downloadDir, zf);
-            const z = new AdmZip(fullPath);
-            const entries = z.getEntries().filter(e =>
-              e.entryName.toLowerCase().endsWith('.xml') && !e.entryName.toUpperCase().startsWith('R-')
-            );
-            if (entries.length > 0) {
-              xmlContent = entries[0].getData().toString('utf-8');
-              filename = entries[0].entryName;
+            for (const zf of zipFiles) {
+              const fullPath = path.join(downloadDir, zf);
+              const z = new AdmZip(fullPath);
+              const entries = z.getEntries().filter(e =>
+                e.entryName.toLowerCase().endsWith('.xml') && !e.entryName.toUpperCase().startsWith('R-')
+              );
+              if (entries.length > 0) {
+                xmlContent = entries[0].getData().toString('utf-8');
+                filename = entries[0].entryName;
+                break; // Encontrado, salir del loop
+              }
             }
           }
 
@@ -563,10 +565,39 @@ export class SunatService {
           const parsed = await parseStringPromise(xmlContent, { explicitArray: false, mergeAttrs: true });
           const transformed = this.transformInvoice(parsed, filename);
 
+          // Capturar archivos adicionales (PDF, CDR)
+          const pdfFiles = files.filter(f => f.toLowerCase().endsWith('.pdf'));
+          let pdfBase64 = '';
+          if (pdfFiles.length > 0) {
+            const pdfPath = path.join(downloadDir, pdfFiles[0]);
+            pdfBase64 = fs.readFileSync(pdfPath).toString('base64');
+          }
+
+          let cdrBase64 = '';
+          // Según instrucción del usuario: Series que comienzan con 'E' no tienen CDR
+          if (!serie.toUpperCase().startsWith('E')) {
+            const cdrFiles = files.filter(f => 
+              f.toLowerCase().endsWith('.zip') && f.toUpperCase().startsWith('R-')
+            );
+            if (cdrFiles.length > 0) {
+              const cdrPath = path.join(downloadDir, cdrFiles[0]);
+              cdrBase64 = fs.readFileSync(cdrPath).toString('base64');
+            }
+          }
+
+          const xmlBase64 = Buffer.from(xmlContent).toString('base64');
+
           // Cleanup
           try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) { }
 
-          resolve(transformed);
+          resolve({
+            transformed,
+            files: {
+              xml: xmlBase64,
+              pdf: pdfBase64,
+              cdr: cdrBase64
+            }
+          });
 
         } catch (e) {
           this.logger.error('Error procesando archivos del script', e.message || e);

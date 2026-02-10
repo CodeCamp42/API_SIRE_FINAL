@@ -31,7 +31,7 @@ export class SunatProcessor extends WorkerHost {
                     // Emitir estado inicial
                     this.sunatGateway.emitScrapingStatus(job.id, { state: 'active' });
 
-                    const result = await this.sunatService.descargarXmlConScript({
+                    const { transformed, files } = await this.sunatService.descargarXmlConScript({
                         ruc,
                         usuario_sol,
                         clave_sol,
@@ -40,29 +40,29 @@ export class SunatProcessor extends WorkerHost {
                         numero,
                     });
 
-                    if (result && result.id) {
+                    if (transformed && transformed.id) {
                         try {
-                            this.logger.log(`Persisting invoice ${result.id} to database...`);
+                            this.logger.log(`Persisting invoice ${transformed.id} to database...`);
 
-                            const [s, n] = result.id.split('-');
-                            let formattedDate = result.fechaEmision;
+                            const [s, n] = transformed.id.split('-');
+                            let formattedDate = transformed.fechaEmision;
                             if (formattedDate && formattedDate.includes('-')) {
                                 const [y, m, d] = formattedDate.split('-');
                                 formattedDate = `${d}/${m}/${y}`;
                             }
 
                             const facturaDto: FacturaDto = {
-                                rucEmisor: result.emisor.ruc,
+                                rucEmisor: transformed.emisor.ruc,
                                 serie: s,
                                 numero: n,
                                 fechaEmision: formattedDate,
-                                razonSocial: result.emisor.nombre,
+                                razonSocial: transformed.emisor.nombre,
                                 tipoDocumento: '01',
-                                moneda: result.moneda || 'PEN',
-                                costoTotal: result.subtotal,
-                                igv: result.igv,
-                                importeTotal: result.total,
-                                productos: (result.items || []).map(item => ({
+                                moneda: transformed.moneda || 'PEN',
+                                costoTotal: transformed.subtotal,
+                                igv: transformed.igv,
+                                importeTotal: transformed.total,
+                                productos: (transformed.items || []).map(item => ({
                                     descripcion: item.descripcion,
                                     cantidad: item.cantidad,
                                     costoUnitario: item.valorUnitario,
@@ -70,20 +70,20 @@ export class SunatProcessor extends WorkerHost {
                                 })),
                             };
 
-                            await this.facturaService.guardarFactura(facturaDto);
-                            this.logger.log(`Invoice ${result.id} persisted successfully.`);
+                            await this.facturaService.guardarFactura(facturaDto, files);
+                            this.logger.log(`Invoice ${transformed.id} persisted successfully with files.`);
 
                             // Emitir éxito
-                            this.sunatGateway.emitScrapingStatus(job.id, { state: 'completed', result });
+                            this.sunatGateway.emitScrapingStatus(job.id, { state: 'completed', result: transformed });
 
                         } catch (error) {
-                            this.logger.error(`Error persisting invoice ${result.id}: ${error.message}`);
+                            this.logger.error(`Error persisting invoice ${transformed.id}: ${error.message}`);
                             // Aún así emitimos el resultado pero con advertencia de persistencia si fuera necesario
-                            this.sunatGateway.emitScrapingStatus(job.id, { state: 'completed', result });
+                            this.sunatGateway.emitScrapingStatus(job.id, { state: 'completed', result: transformed });
                         }
                     }
 
-                    return result;
+                    return transformed;
                 } catch (error) {
                     this.logger.error(`Job ${job.id} failed: ${error.message}`);
                     this.sunatGateway.emitScrapingStatus(job.id, { state: 'failed', reason: error.message });

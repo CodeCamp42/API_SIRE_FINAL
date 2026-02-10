@@ -32,8 +32,8 @@ export class FacturaService {
     return resultados;
   }
 
-  // ✅ **MÉTODO MODIFICADO: Ahora marca como REGISTRADO cuando viene de /procesarFactura**
-  async guardarFactura(f: FacturaDto) {
+  // ✅ **MÉTODO MODIFICADO: Ahora marca como REGISTRADO cuando viene de /procesarFactura y guarda archivos**
+  async guardarFactura(f: FacturaDto, archivos?: { xml: string; pdf: string; cdr: string; }) {
     await this.prisma.proveedor.upsert({
       where: { rucProveedor: f.rucEmisor },
       update: { razonSocial: this.sanitizeString(f.razonSocial) },
@@ -49,8 +49,11 @@ export class FacturaService {
       where: { numeroComprobante },
     });
 
+    let facturaId: number;
+
     // ✅ **SI YA EXISTE: Actualizar y marcar como REGISTRADO (si no está CONTABILIZADO)**
     if (existente) {
+      facturaId = existente.idFactura;
       const [day, month, year] = f.fechaEmision.split('/').map(Number);
       const fechaEmision = new Date(year, month - 1, day);
 
@@ -92,52 +95,68 @@ export class FacturaService {
       }
 
       this.logger.log(`✅ Factura ${numeroComprobante} actualizada y marcada como ${nuevoEstado}`);
+    } else {
+      // SI NO EXISTE: Crear nueva como CONSULTADO
+      const [day, month, year] = f.fechaEmision.split('/').map(Number);
+      const fechaEmision = new Date(year, month - 1, day);
 
-      return {
-        success: true,
-        message: 'Factura actualizada y registrada',
-        id: existente.idFactura,
-        numeroComprobante,
-        actualizada: true,
-        estado: nuevoEstado
-      };
+      const nuevaFactura = await this.prisma.factura.create({
+        data: {
+          numeroComprobante,
+          serie: f.serie,
+          numero: f.numero,
+          fechaEmision,
+          moneda: f.moneda || 'PEN',
+          costoTotal: new Prisma.Decimal(Number(f.costoTotal)),
+          igv: new Prisma.Decimal(Number(f.igv)),
+          importeTotal: new Prisma.Decimal(Number(f.importeTotal)),
+          estado: EstadoFactura.CONSULTADO,
+          usuarioId: 1,
+          proveedorRuc: f.rucEmisor,
+          detalles: {
+            create: f.productos.map(p => ({
+              descripcion: this.sanitizeString(p.descripcion),
+              cantidad: new Prisma.Decimal(Number(p.cantidad)),
+              costoUnitario: new Prisma.Decimal(Number(p.costoUnitario)),
+              unidadMedida: this.sanitizeString(p.unidadMedida),
+            })),
+          },
+        },
+      });
+      facturaId = nuevaFactura.idFactura;
     }
 
-    // SI NO EXISTE: Crear nueva como CONSULTADO
-    const [day, month, year] = f.fechaEmision.split('/').map(Number);
-    const fechaEmision = new Date(year, month - 1, day);
-
-    const nuevaFactura = await this.prisma.factura.create({
-      data: {
-        numeroComprobante,
-        serie: f.serie,
-        numero: f.numero,
-        fechaEmision,
-        moneda: f.moneda || 'PEN',
-        costoTotal: new Prisma.Decimal(Number(f.costoTotal)),
-        igv: new Prisma.Decimal(Number(f.igv)),
-        importeTotal: new Prisma.Decimal(Number(f.importeTotal)),
-        estado: EstadoFactura.CONSULTADO,
-        usuarioId: 1,
-        proveedorRuc: f.rucEmisor,
-        detalles: {
-          create: f.productos.map(p => ({
-            descripcion: this.sanitizeString(p.descripcion),
-            cantidad: new Prisma.Decimal(Number(p.cantidad)),
-            costoUnitario: new Prisma.Decimal(Number(p.costoUnitario)),
-            unidadMedida: this.sanitizeString(p.unidadMedida),
-          })),
+    // ✅ **GUARDAR ARCHIVOS EN COMPROBANTE ELECTRÓNICO**
+    if (archivos) {
+      this.logger.log(`💾 Guardando archivos para factura ${numeroComprobante}...`);
+      await this.prisma.comprobanteElectronico.upsert({
+        where: { facturaId: facturaId },
+        update: {
+          xml: archivos.xml,
+          pdf: archivos.pdf,
+          cdr: archivos.cdr || '', // Puede ser vacío para series 'E'
+          fechaRecepcion: new Date(),
+          estadoSunat: 'RECIBIDO'
         },
-      },
-      include: { detalles: true },
-    });
+        create: {
+          facturaId: facturaId,
+          xml: archivos.xml,
+          pdf: archivos.pdf,
+          cdr: archivos.cdr || '',
+          fechaRecepcion: new Date(),
+          estadoSunat: 'RECIBIDO'
+        }
+      });
+      this.logger.log(`✅ Archivos guardados exitosamente.`);
+    }
 
     return {
       success: true,
-      message: 'Factura creada',
-      id: nuevaFactura.idFactura,
+      message: existente ? 'Factura actualizada y registrada' : 'Factura creada',
+      id: facturaId,
       numeroComprobante,
-      creada: true
+      actualizada: !!existente,
+      creada: !existente
     };
   }
 

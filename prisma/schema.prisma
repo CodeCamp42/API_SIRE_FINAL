@@ -65,6 +65,7 @@ model DetalleFactura {
 
 model ComprobanteElectronico {
   idComprobante  Int      @id @default(autoincrement())
+  pdf            String
   xml            String
   cdr            String
   fechaRecepcion DateTime
