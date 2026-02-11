@@ -24,8 +24,8 @@ RUN npm run build
 # Crear directorio para descargas temporales si no existe
 RUN mkdir -p downloads && chmod 777 downloads
 
-# Exponer el puerto de la aplicación (NestJS por defecto es 3000)
-EXPOSE 3000
+# Exponer el puerto de la aplicación (3043 según configuración local)
+EXPOSE 3043
 
 # Script de inicio: ejecuta migraciones y luego la app
 # En producción (Dokploy), usaremos prisma migrate deploy
