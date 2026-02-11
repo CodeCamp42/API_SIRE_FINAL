@@ -405,8 +405,9 @@ async function consultarYLlenarForm(page) {
     const hasXml = await descargarArchivoPorTooltip(page, frameApp, 'Descargar XML', 'XML');
     if (hasXml) await page.waitForTimeout(7000); // Solo esperar si se descargó
 
-    // Descargar CDR (Último paso, no necesita espera al final)
-    await descargarArchivoPorTooltip(page, frameApp, 'Descargar CDR', 'CDR');
+    // Descargar CDR (Último paso, agregar espera para asegurar escritura en disco)
+    const hasCdr = await descargarArchivoPorTooltip(page, frameApp, 'Descargar CDR', 'CDR');
+    if (hasCdr) await page.waitForTimeout(5000);
 
     await page.waitForTimeout(1000);
     console.log('✅ Proceso de consulta y descargas finalizado.');
@@ -433,7 +434,8 @@ async function descargarComprobantes(page) {
       const hasXml = await descargarArchivoPorTooltip(row.page(), row, 'Descargar XML', `XML-${i + 1}`);
       if (hasXml) await page.waitForTimeout(7000);
 
-      await descargarArchivoPorTooltip(row.page(), row, 'Descargar CDR', `CDR-${i + 1}`);
+      const hasCdr = await descargarArchivoPorTooltip(row.page(), row, 'Descargar CDR', `CDR-${i + 1}`);
+      if (hasCdr) await page.waitForTimeout(5000);
 
       await page.waitForTimeout(1000);
     }

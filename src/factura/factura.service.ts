@@ -43,7 +43,8 @@ export class FacturaService {
       },
     });
 
-    const numeroComprobante = `${f.serie}-${f.numero}`;
+    const numeroNormalizado = this.normalizarNumero(f.numero);
+    const numeroComprobante = `${f.serie.toUpperCase()}-${numeroNormalizado}`;
 
     const existente = await this.prisma.factura.findUnique({
       where: { numeroComprobante },
@@ -103,8 +104,8 @@ export class FacturaService {
       const nuevaFactura = await this.prisma.factura.create({
         data: {
           numeroComprobante,
-          serie: f.serie,
-          numero: f.numero,
+          serie: f.serie.toUpperCase(),
+          numero: numeroNormalizado,
           fechaEmision,
           moneda: f.moneda || 'PEN',
           costoTotal: new Prisma.Decimal(Number(f.costoTotal)),
@@ -186,8 +187,19 @@ export class FacturaService {
       },
     });
 
+    let serie = '0000';
+    let numero = datos.numero;
+    if (datos.numero.includes('-')) {
+      const parts = datos.numero.split('-');
+      serie = parts[0].toUpperCase();
+      numero = parts[1];
+    }
+    
+    const numeroNormalizado = this.normalizarNumero(numero);
+    const numeroComprobanteFinal = `${serie}-${numeroNormalizado}`;
+
     const existente = await this.prisma.factura.findUnique({
-      where: { numeroComprobante: datos.numero }
+      where: { numeroComprobante: numeroComprobanteFinal }
     });
 
     if (existente) {
@@ -201,23 +213,15 @@ export class FacturaService {
       };
     }
 
-    let serie = '0000';
-    let numero = datos.numero;
-    if (datos.numero.includes('-')) {
-      const parts = datos.numero.split('-');
-      serie = parts[0];
-      numero = parts[1];
-    }
-
     const total = datos.monto ? Number(datos.monto) : 0;
     const igv = total * 0.18;
     const costoTotal = total - igv;
 
     const created = await this.prisma.factura.create({
       data: {
-        numeroComprobante: datos.numero,
+        numeroComprobante: numeroComprobanteFinal,
         serie,
-        numero,
+        numero: numeroNormalizado,
         fechaEmision: datos.fecha ? new Date(datos.fecha) : new Date(),
         importeTotal: new Prisma.Decimal(total),
         costoTotal: new Prisma.Decimal(costoTotal),
@@ -242,8 +246,15 @@ export class FacturaService {
   async buscarPorNumero(numeroComprobante: string) {
     this.logger.log(`Buscando factura por número: ${numeroComprobante}`);
 
+    // Normalizar por si viene sin ceros (ej: F001-103077)
+    let numeroCompNormalizado = numeroComprobante;
+    if (numeroComprobante.includes('-')) {
+      const [s, n] = numeroComprobante.split('-');
+      numeroCompNormalizado = `${s.toUpperCase()}-${this.normalizarNumero(n)}`;
+    }
+
     const factura = await this.prisma.factura.findUnique({
-      where: { numeroComprobante },
+      where: { numeroComprobante: numeroCompNormalizado },
       include: {
         detalles: true,
         proveedor: true,
@@ -335,8 +346,14 @@ export class FacturaService {
     this.logger.log(`Productos recibidos: ${productos?.length || 0}`);
 
     try {
+      let numeroCompNormalizado = numeroComprobante;
+      if (numeroComprobante.includes('-')) {
+        const [s, n] = numeroComprobante.split('-');
+        numeroCompNormalizado = `${s.toUpperCase()}-${this.normalizarNumero(n)}`;
+      }
+
       const factura = await this.prisma.factura.findUnique({
-        where: { numeroComprobante },
+        where: { numeroComprobante: numeroCompNormalizado },
         include: { detalles: true },
       });
 
@@ -391,8 +408,14 @@ export class FacturaService {
   async obtenerFacturaParaUI(numeroComprobante: string) {
     this.logger.log(`Obteniendo factura para UI: ${numeroComprobante}`);
 
+    let numeroCompNormalizado = numeroComprobante;
+    if (numeroComprobante.includes('-')) {
+      const [s, n] = numeroComprobante.split('-');
+      numeroCompNormalizado = `${s.toUpperCase()}-${this.normalizarNumero(n)}`;
+    }
+
     const factura = await this.prisma.factura.findUnique({
-      where: { numeroComprobante },
+      where: { numeroComprobante: numeroCompNormalizado },
       include: {
         detalles: true,
         proveedor: true,
@@ -472,8 +495,14 @@ export class FacturaService {
     this.logger.log(`Factura: ${numeroComprobante}`);
 
     try {
+      let numeroCompNormalizado = numeroComprobante;
+      if (numeroComprobante.includes('-')) {
+        const [s, n] = numeroComprobante.split('-');
+        numeroCompNormalizado = `${s.toUpperCase()}-${this.normalizarNumero(n)}`;
+      }
+
       const facturaExistente = await this.prisma.factura.findUnique({
-        where: { numeroComprobante },
+        where: { numeroComprobante: numeroCompNormalizado },
       });
 
       if (!facturaExistente) {
@@ -489,7 +518,7 @@ export class FacturaService {
       }
 
       const factura = await this.prisma.factura.update({
-        where: { numeroComprobante },
+        where: { numeroComprobante: numeroCompNormalizado },
         data: { estado: EstadoFactura.CON_DETALLE },
         include: { detalles: true, proveedor: true },
       });
@@ -507,8 +536,14 @@ export class FacturaService {
     this.logger.log(`Factura: ${numeroComprobante}`);
 
     try {
+      let numeroCompNormalizado = numeroComprobante;
+      if (numeroComprobante.includes('-')) {
+        const [s, n] = numeroComprobante.split('-');
+        numeroCompNormalizado = `${s.toUpperCase()}-${this.normalizarNumero(n)}`;
+      }
+
       const factura = await this.prisma.factura.update({
-        where: { numeroComprobante },
+        where: { numeroComprobante: numeroCompNormalizado },
         data: { estado: EstadoFactura.REGISTRADO },
       });
 
@@ -575,8 +610,14 @@ export class FacturaService {
     this.logger.log(`Actualizando estado de factura ${numeroComprobante} a ${nuevoEstado}`);
 
     try {
+      let numeroCompNormalizado = numeroComprobante;
+      if (numeroComprobante.includes('-')) {
+        const [s, n] = numeroComprobante.split('-');
+        numeroCompNormalizado = `${s.toUpperCase()}-${this.normalizarNumero(n)}`;
+      }
+
       const factura = await this.prisma.factura.update({
-        where: { numeroComprobante },
+        where: { numeroComprobante: numeroCompNormalizado },
         data: {
           estado: nuevoEstado,
         },
@@ -594,7 +635,8 @@ export class FacturaService {
     this.logger.log('=== REGISTRAR FACTURA DESDE SUNAT ===');
     this.logger.log(`Datos: ${JSON.stringify(datos)}`);
 
-    const numeroComprobante = `${datos.serie}-${datos.numero}`;
+    const numeroNormalizado = this.normalizarNumero(datos.numero);
+    const numeroComprobante = `${datos.serie.toUpperCase()}-${numeroNormalizado}`;
 
     const existente = await this.prisma.factura.findUnique({
       where: { numeroComprobante },
@@ -625,8 +667,8 @@ export class FacturaService {
     const factura = await this.prisma.factura.create({
       data: {
         numeroComprobante,
-        serie: datos.serie,
-        numero: datos.numero,
+        serie: datos.serie.toUpperCase(),
+        numero: numeroNormalizado,
         fechaEmision,
         moneda: datos.moneda || 'PEN',
         costoTotal: new Prisma.Decimal(Number(datos.costoTotal) || 0),
@@ -664,6 +706,14 @@ export class FacturaService {
       base64: contenido,
       nombreArchivo: `${numeroComprobante}.${tipo === 'cdr' ? 'zip' : tipo}`
     };
+  }
+
+  // ✅ **HELPER: Normalizar número a 8 dígitos (formato SUNAT)**
+  private normalizarNumero(numero: string): string {
+    if (!numero) return '';
+    // Eliminar cualquier carácter no numérico por si acaso y rellenar con ceros
+    const soloNumeros = numero.replace(/\D/g, '');
+    return soloNumeros.padStart(8, '0');
   }
 
   // ✅ **HELPER: Sanitizar strings para evitar errores de codificación (WIN1252/UTF8)**

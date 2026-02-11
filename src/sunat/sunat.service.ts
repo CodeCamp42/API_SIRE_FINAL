@@ -510,6 +510,8 @@ export class SunatService {
 
         try {
           const files = fs.readdirSync(downloadDir);
+          this.logger.log(`Archivos detectados en ${downloadDir}: ${files.join(', ')}`);
+          
           if (!files || files.length === 0) {
             this.logger.warn('No se encontraron archivos descargados por el script');
             try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (er) { }
@@ -580,8 +582,11 @@ export class SunatService {
               f.toLowerCase().endsWith('.zip') && f.toUpperCase().startsWith('R-')
             );
             if (cdrFiles.length > 0) {
+              this.logger.log(`Encontrado archivo CDR: ${cdrFiles[0]}`);
               const cdrPath = path.join(downloadDir, cdrFiles[0]);
               cdrBase64 = fs.readFileSync(cdrPath).toString('base64');
+            } else {
+              this.logger.warn('No se encontró ningún archivo que coincida con el patrón de CDR (R-*.zip)');
             }
           }
 
