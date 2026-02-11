@@ -9,8 +9,10 @@ import {
   Get, 
   Param, 
   NotFoundException, 
-  Put 
+  Put,
+  Res
 } from '@nestjs/common';
+import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImageRecognitionService } from './image-recognition.service';
 import { FacturaService } from './factura.service';
@@ -305,6 +307,34 @@ export class FacturaController {
         success: false,
         message: error.message,
       };
+    }
+  }
+
+  @Get('descargar/:numeroComprobante/:tipo')
+  async descargarArchivo(
+    @Param('numeroComprobante') numeroComprobante: string,
+    @Param('tipo') tipo: 'pdf' | 'xml' | 'cdr',
+    @Res() res: Response
+  ) {
+    this.logger.log(`Petición de descarga: ${numeroComprobante} (${tipo})`);
+    
+    try {
+      const archivo = await this.facturaService.obtenerArchivoComprobante(numeroComprobante, tipo);
+      const buffer = Buffer.from(archivo.base64, 'base64');
+      
+      const contentTypes = {
+        pdf: 'application/pdf',
+        xml: 'application/xml',
+        cdr: 'application/zip'
+      };
+
+      res.setHeader('Content-Type', contentTypes[tipo] || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename=${archivo.nombreArchivo}`);
+      
+      return res.send(buffer);
+    } catch (error: any) {
+      this.logger.error(`Error en descarga: ${error.message}`);
+      throw new NotFoundException(error.message);
     }
   }
 }

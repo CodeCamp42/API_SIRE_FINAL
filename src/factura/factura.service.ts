@@ -642,6 +642,30 @@ export class FacturaService {
     return factura;
   }
 
+  // ✅ **MÉTODO NUEVO: Obtener archivos base64 antiguos**
+  async obtenerArchivoComprobante(numeroComprobante: string, tipo: 'pdf' | 'xml' | 'cdr') {
+    this.logger.log(`Obteniendo archivo ${tipo} para factura: ${numeroComprobante}`);
+
+    const factura = await this.prisma.factura.findUnique({
+      where: { numeroComprobante },
+      include: { comprobanteElectronico: true },
+    });
+
+    if (!factura || !factura.comprobanteElectronico) {
+      throw new Error(`Archivos no encontrados para la factura ${numeroComprobante}`);
+    }
+
+    const contenido = factura.comprobanteElectronico[tipo];
+    if (!contenido) {
+      throw new Error(`El archivo de tipo ${tipo} no está disponible para esta factura`);
+    }
+
+    return {
+      base64: contenido,
+      nombreArchivo: `${numeroComprobante}.${tipo === 'cdr' ? 'zip' : tipo}`
+    };
+  }
+
   // ✅ **HELPER: Sanitizar strings para evitar errores de codificación (WIN1252/UTF8)**
   private sanitizeString(str: string): string {
     if (!str) return '';
