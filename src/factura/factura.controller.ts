@@ -309,7 +309,7 @@ export class FacturaController {
       };
     }
   }
-
+// Descargar archivos de facturas
   @Get('descargar/:numeroComprobante/:tipo')
   async descargarArchivo(
     @Param('numeroComprobante') numeroComprobante: string,
