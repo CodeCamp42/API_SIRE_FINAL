@@ -688,8 +688,15 @@ export class FacturaService {
   async obtenerArchivoComprobante(numeroComprobante: string, tipo: 'pdf' | 'xml' | 'cdr') {
     this.logger.log(`Obteniendo archivo ${tipo} para factura: ${numeroComprobante}`);
 
+    // Normalizar identificador para búsqueda (asegurar 8 dígitos)
+    let numeroCompNormalizado = numeroComprobante;
+    if (numeroComprobante.includes('-')) {
+      const [s, n] = numeroComprobante.split('-');
+      numeroCompNormalizado = `${s.toUpperCase()}-${this.normalizarNumero(n)}`;
+    }
+
     const factura = await this.prisma.factura.findUnique({
-      where: { numeroComprobante },
+      where: { numeroComprobante: numeroCompNormalizado },
       include: { comprobanteElectronico: true },
     });
 
